@@ -10,7 +10,7 @@ import re
 from config import (
     ARQUIVO_CACHE, LIMITE_CACHE_BYTES, SERVIDOR_IP, SERVIDOR_PORTA,
     TIMEOUT_CONEXAO, QTD_PADRAO_NOTICIAS, URL_UOL, HEADERS_PADRAO, DEBUG,
-    GEMINI_API_KEY, GEMINI_MODEL, GEMINI_MODEL_BACKUP
+    GEMINI_API_KEY, GEMINI_MODEL
 )
 
 def carregar_cache():
@@ -58,75 +58,48 @@ def obter_noticias_uol(qtd=QTD_PADRAO_NOTICIAS):
         return [f'Erro ao obter notícias: {e}']
 
 def resolver_com_gemini(problema):
-    """Resolve problemas usando Gemini API - TENTATIVA PRIMÁRIA"""
+    """Resolve problemas usando Gemini API (google-genai)"""
+    
     if not GEMINI_API_KEY or len(GEMINI_API_KEY) < 20:
         print("[Gemini] Chave não configurada")
         return None
-    
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # Modelos para tentar (em ordem de preferência)
-        modelos = [
-            'gemini-3-flash-preview',  # Modelo mais novo
-            'gemini-2.0-flash-exp',    # Alternativa
-            'gemini-pro',              # Modelo estável
-            'models/gemini-pro',       # Outro formato
-        ]
-        
-        for modelo_nome in modelos:
-            try:
-                print(f"[Gemini] Tentando modelo: {modelo_nome}")
-                model = genai.GenerativeModel(modelo_nome)
-                
-                # Prompt com Chain-of-Thought
-                prompt = f"""Você é um assistente matemático.
-                Resolva este problema passo a passo (Chain-of-Thought), 
-                mas forneça APENAS o resultado numérico final.
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        try:
+            print(f"[Gemini] Tentando modelo: {GEMINI_MODEL}")
+            prompt = f"""
+            Você é um assistente matemático.
+            Resolva o problema internamente passo a passo,
+            mas forneça APENAS o resultado numérico final.
 
-                Problema: {problema}
+            Problema: {problema}
 
-                Instruções:
-                1. Faça o raciocínio passo a passo internamente
-                2. Realize todos os cálculos necessários
-                3. A resposta final deve ser APENAS o número
-                4. Use ponto para decimais
-                5. Formato: [resultado]
+            Formato da resposta:
+            [resultado]
 
-                Exemplo: Para "2+2", responda: [4]
+            Exemplo:
+            Entrada: 2+2
+            Saída: [4]
+            """
 
-                Agora resolva: {problema}"""
-                
-                response = model.generate_content(prompt)
-                resultado = response.text.strip()
-                print(f"[Gemini] Resposta: {resultado[:100]}...")
-                
-                # Extrair número da resposta
-                match = re.search(r'\[?(?P<numero>-?\d+(\.\d+)?)\]?', resultado)
-                if match:
-                    return f"(Gemini) {match.group('numero')}"
-                
-                # Tentar limpar a resposta
-                linhas = resultado.split('\n')
-                for linha in reversed(linhas):  # Começar do final
-                    linha_limpa = linha.strip()
-                    if linha_limpa and any(c.isdigit() for c in linha_limpa):
-                        numeros = re.findall(r'-?\d+(?:\.\d+)?', linha_limpa)
-                        if numeros:
-                            return f"(Gemini) {numeros[-1]}"
-                
-                return f"(Gemini) {resultado[:50]}..."
-                
-            except Exception as e_modelo:
-                erro_msg = str(e_modelo).lower()
-                if "not found" in erro_msg or "not supported" in erro_msg:
-                    continue  # Tenta próximo modelo
-                else:
-                    print(f"[Gemini] Erro no modelo {modelo_nome}: {e_modelo}")
-                    break  # Outro erro, para de tentar
-        
-        return None  # Todos os modelos falharam
-        
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt
+            )
+
+            resultado = response.text.strip()
+            print(f"[Gemini] Resposta bruta: {resultado}")
+
+            # Extrair número
+            match = re.search(r'\[?\s*(-?\d+(?:\.\d+)?)\s*\]?', resultado)
+            if match:
+                return f"(Gemini) {match.group(1)}"
+
+            return f"(Gemini) {resultado[:50]}..."
+
+        except Exception as e_modelo:
+            print(f"[Gemini] Erro no modelo {GEMINI_MODEL}: {e_modelo}")
+        return None
     except Exception as e:
         print(f"[Gemini] Erro geral: {e}")
         return None
@@ -267,7 +240,6 @@ def servidor_rpc():
         servidor.listen()
         print(f"Servidor RPC ativo em {SERVIDOR_IP}:{SERVIDOR_PORTA}")
         print(f"Gemini API: {'Configurada' if GEMINI_API_KEY and len(GEMINI_API_KEY) > 20 else 'Não configurada'}")
-        print("Estratégia: Gemini primeiro → Local fallback")
 
         while True:
             conexao, _ = servidor.accept()
@@ -296,4 +268,4 @@ def servidor_rpc():
                     print(f"[Erro] {e}")
 
 if __name__ == "__main__":
-    servidor_rpc()
+        servidor_rpc()
